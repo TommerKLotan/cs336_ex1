@@ -86,9 +86,11 @@ def create_merges(max_num_merges: int, pretoken_counts: dict[bytes, int]) -> lis
 
 
 def split_by_special_token(data_str: str, special_tokens: list[str], keep_special_tokens=False):
+    if not special_tokens:
+        return [data_str]
     special_tokens_pattern = "|".join(re.escape(token) for token in sorted(special_tokens, key=len, reverse=True))
     pattern = f"({special_tokens_pattern})" if keep_special_tokens else special_tokens_pattern
-    return re.split(pattern, data_str)
+    return [x for x in re.split(pattern, data_str) if x]
 
 
 def sum_counters_fast(counters):
@@ -118,8 +120,6 @@ def run_train_bpe(
     **kwargs,
 ) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
     corpus = Path.read_text(input_path, encoding="utf-8")
-    print("read corpus")
-    # corpus = corpus.decode()
     data_chunks = split_by_special_token(corpus, special_tokens)
     pretoken_counts = get_pretoken_counts(data_chunks, special_tokens)
     vocab, merges = create_merges(vocab_size - 256 - len(special_tokens), pretoken_counts)
@@ -140,17 +140,20 @@ def train_bpe(data_file_name: str, vocab_size: int, special_tokens: list[str]):
 
 def encode_pretoken(pretoken: str, inverse_vocab, merges):
 
-    tokens = list(struct.iter_unpack("c", pretoken.encode()))
+    encoded_pretoken = pretoken.encode()
+    tokens = list(x[0] for x in struct.iter_unpack("c", encoded_pretoken))
     for a, b in merges:
         if len(tokens) < 2:
             break
-        replace_subarray(tokens, [a, b], [a + b])
+        if a+b in encoded_pretoken:
+            tokens = replace_subarray(tokens, [a, b], [a + b])
     return [inverse_vocab[x] for x in tokens]
 
 
-def encode_chunk(chunk: str, inverse_vocab, merges) -> list[int]:
-    pretokens = pretokenize(chunk)
+def encode_pretokens(pretokens: list[str], inverse_vocab, merges) -> list[int]:
     return sum((encode_pretoken(pretoken, inverse_vocab, merges) for pretoken in pretokens), [])
+
+    
 
 
 class Tokenizer:
@@ -170,42 +173,56 @@ class Tokenizer:
         return Tokenizer(vocab, merges, special_tokens)
 
     def encode(self, text: str) -> list[int]:
-        chunks = split_by_special_token(text, self.special_tokens)
+        chunks = split_by_special_token(text, self.special_tokens, keep_special_tokens=True)
+        ()
         encoded = sum(
             (
                 [self.inverse_vocab[chunk.encode()]]
                 if chunk in self.special_tokens
-                else encode_chunk(chunk, self.inverse_vocab, self.merges)
-                for chunk in chunks
+                else encode_pretokens(pretokenize(chunk), self.inverse_vocab, self.merges)
+                for chunk in tqdm(chunks)
             ),
             [],
         )
         return encoded
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        buffer = ""
-        output_chunks = []
-        for string in iterable:
-            buffer = buffer + string
-            special_token = next((x for x in self.special_tokens if x in buffer), None)
-            if special_token is not None:
-                chunk, buffer = buffer.split(special_token, maxsplit=1)
-                output_chunks.extend(
-                    [encode_chunk(chunk, self.inverse_vocab, self.merges), self.inverse_vocab[special_token.encode()]]
-                )
-        if buffer:
-            output_chunks.append(encode_chunk(buffer, self.inverse_vocab, self.merges))
+        BUFFER_SIZE = 50000
+        max_special_token_len = max((len(x) for x in self.special_tokens), default=1)
+        def token_id_generator():
+            total = 0
+            buffer = ""
+            for string in iterable:
+                buffer = buffer + string
+                total += len(string)
+                special_token = next((x for x in self.special_tokens if x in buffer), None)
+                if special_token is not None:
+                    chunk, buffer = buffer.split(special_token, maxsplit=1)
+                    pretokens = pretokenize(chunk)
+                    yield from encode_pretokens(pretokens, self.inverse_vocab, self.merges)
+                    yield self.inverse_vocab[special_token.encode()]
+                elif len(buffer) > BUFFER_SIZE:
+                    pretokens = list(pretokenize(buffer[:-max_special_token_len]))
+                    buffer = ''.join([*pretokens[-2:], buffer[-max_special_token_len:]])
+                    yield from encode_pretokens(pretokens[:-2], self.inverse_vocab, self.merges)
+                    # print(total)
+                    
+            if buffer:
+                print('here', len(buffer))
+                yield from self.encode(buffer)
+                print('here now')
+                return
 
-        return sum(output_chunks, [])
+        return token_id_generator()
 
     def decode(self, ids: list[int]) -> str:
-        token_bytes = b"".join(vocab[id] for id in ids)
+        token_bytes = b"".join(self.vocab[id] for id in ids)
         return token_bytes.decode(errors="replace")
 
 
 FIXTURES_PATH = (Path(__file__).resolve().parent.parent) / "tests" / "fixtures"
 MODELS_DIR = Path(__file__).parent.parent / "models"
-
+DATA_DIR = Path(__file__).parent.parent / "data"
 if __name__ == "__main__":
     special_tokens = ["<|endoftext|>"]
     # vocab, merges = train_bpe(
@@ -213,6 +230,11 @@ if __name__ == "__main__":
     #     vocab_size=10000,
     #     special_tokens=special_tokens,
     # )
+    print('aaaaa')
+    tokenizer = Tokenizer.from_files(MODELS_DIR / "TinyStoriesV2-GPT4-train-bpe-2026-10-08_11-29-06", special_tokens=[])
+    with open(DATA_DIR / 'tinystories_sample_5M.txt') as f:
+        print('starting')
+        for x in zip(range(100000), tokenizer.encode_iterable(f)):
+            pass
+    # encoded = tokenizer.encode("Héllò hôw <|endoftext|><|endoftext|> are ü? 🙃<|endoftext|>")
 
-    tokenizer = Tokenizer.from_files(MODELS_DIR / "TinyStoriesV2-GPT4-train-bpe-2026-10-08_11-29-06", special_tokens)
-    print(tokenizer.encode("hello there, how's it going?"))
