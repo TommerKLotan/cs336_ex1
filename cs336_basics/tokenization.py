@@ -237,15 +237,15 @@ MODELS_DIR = Path(__file__).parent.parent / "models"
 DATA_DIR = Path(__file__).parent.parent / "data"
 if __name__ == "__main__":
     special_tokens = ["<|endoftext|>"]
-    # vocab, merges = train_bpe(
-    #     "TinyStoriesV2-GPT4-train",
-    #     vocab_size=10000,
-    #     special_tokens=special_tokens,
-    # )
-    print("aaaaa")
-    tokenizer = Tokenizer.from_files(MODELS_DIR / "TinyStoriesV2-GPT4-train-bpe-2026-10-08_11-29-06", special_tokens=[])
-    with open(DATA_DIR / "tinystories_sample_5M.txt") as f:
-        print("starting")
-        for x in zip(range(100000), tokenizer.encode_iterable(f)):
-            pass
-    # encoded = tokenizer.encode("Héllò hôw <|endoftext|><|endoftext|> are ü? 🙃<|endoftext|>")
+    vocab, merges = train_bpe_to_file(
+        "TinyStoriesV2-GPT4-train",
+        vocab_size=10000,
+        special_tokens=special_tokens,
+    )
+    # print("aaaaa")
+    # tokenizer = Tokenizer.from_files(MODELS_DIR / "TinyStoriesV2-GPT4-train-bpe-2026-10-08_11-29-06", special_tokens=[])
+    # with open(DATA_DIR / "tinystories_sample_5M.txt") as f:
+    #     print("starting")
+    #     for x in zip(range(100000), tokenizer.encode_iterable(f)):
+    #         pass
+    # # encoded = tokenizer.encode("Héllò hôw <|endoftext|><|endoftext|> are ü? 🙃<|endoftext|>")
