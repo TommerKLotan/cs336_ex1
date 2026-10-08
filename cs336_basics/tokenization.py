@@ -138,10 +138,14 @@ def train_bpe(data_file_name: str, vocab_size: int, special_tokens: list[str]):
     return output
 
 
-def encode_pretoken(pretoken: str, inverse_vocab, merges):
+def encode_pretoken(pretoken: str, inverse_vocab, merge_rank_dict):
 
     encoded_pretoken = pretoken.encode()
     tokens = list(x[0] for x in struct.iter_unpack("c", encoded_pretoken))
+    pairs = zip(tokens, tokens[1:])
+    merge_candidates = [pair for pair in pairs if pair in merge_rank_dict]
+    sorted_merge_candidates = sorted()
+
     for a, b in merges:
         if len(tokens) < 2:
             break
@@ -151,7 +155,8 @@ def encode_pretoken(pretoken: str, inverse_vocab, merges):
 
 
 def encode_pretokens(pretokens: list[str], inverse_vocab, merges) -> list[int]:
-    return sum((encode_pretoken(pretoken, inverse_vocab, merges) for pretoken in pretokens), [])
+    merge_rank_dict = {m: i for i, m in enumerate(merges)}
+    return sum((encode_pretoken(pretoken, inverse_vocab, merge_rank_dict) for pretoken in pretokens), [])
 
     
 
