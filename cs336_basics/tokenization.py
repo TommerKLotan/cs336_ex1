@@ -106,12 +106,26 @@ def pretokenize(data: str) -> Iterator[str]:
     return (x.group() for x in re.finditer(PRETOKENIZATION_PATTERN, data))
 
 
-def get_pretoken_counts(data_chunks: list[str], special_tokens: list[str]) -> dict[bytes, int]:
+def get_pretoken_counts(data_chunks: Iterable[str]) -> dict[bytes, int]:
     pretoken_count = Counter()
     for data_str in tqdm(data_chunks, desc="Pretokenizing chunks"):
         pretoken_count.update(pretokenize(data_str))
     pretoken_count_dict = dict(pretoken_count)
-    return {k.encode(): v for k, v in pretoken_count_dict.items() if k not in special_tokens}
+    return {k.encode(): v for k, v in pretoken_count_dict.items()}
+
+
+def train_chunk_generator(input_path: str, special_tokens: list[str]):
+    BUFFER_SIZE = 100_000
+    buffer = ""
+    with open(input_path, encoding="utf-8") as f:
+        for str_chunk in f:
+            buffer += str_chunk
+            if len(buffer) >= BUFFER_SIZE:
+                chunks = split_by_special_token(buffer, special_tokens)
+                buffer = chunks.pop()
+                yield from chunks
+    chunks = split_by_special_token(buffer, special_tokens)
+    yield from chunks
 
 
 def run_train_bpe(
@@ -120,15 +134,14 @@ def run_train_bpe(
     special_tokens: list[str],
     **kwargs,
 ) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
-    corpus = Path.read_text(input_path, encoding="utf-8")
-    data_chunks = split_by_special_token(corpus, special_tokens)
-    pretoken_counts = get_pretoken_counts(data_chunks, special_tokens)
+    data_chunks = train_chunk_generator(input_path, special_tokens)
+    pretoken_counts = get_pretoken_counts(data_chunks)
     vocab, merges = create_merges(vocab_size - 256 - len(special_tokens), pretoken_counts)
     vocab.extend(token.encode() for token in special_tokens)
     return dict(enumerate(vocab)), merges
 
 
-def train_bpe(data_file_name: str, vocab_size: int, special_tokens: list[str]):
+def train_bpe_to_file(data_file_name: str, vocab_size: int, special_tokens: list[str]):
     data_file_path = (Path(__file__).parent.parent / "data" / data_file_name).with_suffix(".txt")
     out_file_name = f"{data_file_name}-bpe-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
     out_file_path = Path(__file__).parent.parent / "models" / out_file_name
