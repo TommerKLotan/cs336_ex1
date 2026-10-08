@@ -139,26 +139,19 @@ def train_bpe(data_file_name: str, vocab_size: int, special_tokens: list[str]):
 
 
 def encode_pretoken(pretoken: str, inverse_vocab, merge_rank_dict):
-
     encoded_pretoken = pretoken.encode()
     tokens = list(x[0] for x in struct.iter_unpack("c", encoded_pretoken))
-    pairs = zip(tokens, tokens[1:])
-    merge_candidates = [pair for pair in pairs if pair in merge_rank_dict]
-    sorted_merge_candidates = sorted()
-
-    for a, b in merges:
-        if len(tokens) < 2:
-            break
-        if a+b in encoded_pretoken:
-            tokens = replace_subarray(tokens, [a, b], [a + b])
+    while len(tokens) > 1:
+        pairs = zip(tokens, tokens[1:])
+        merge_candidates = [pair for pair in pairs if pair in merge_rank_dict]
+        a, b = min(merge_candidates, key=merge_rank_dict.get)
+        tokens = replace_subarray(tokens, [a, b], [a + b])
     return [inverse_vocab[x] for x in tokens]
 
 
 def encode_pretokens(pretokens: list[str], inverse_vocab, merges) -> list[int]:
     merge_rank_dict = {m: i for i, m in enumerate(merges)}
     return sum((encode_pretoken(pretoken, inverse_vocab, merge_rank_dict) for pretoken in pretokens), [])
-
-    
 
 
 class Tokenizer:
@@ -194,6 +187,7 @@ class Tokenizer:
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
         BUFFER_SIZE = 50000
         max_special_token_len = max((len(x) for x in self.special_tokens), default=1)
+
         def token_id_generator():
             total = 0
             buffer = ""
@@ -208,14 +202,14 @@ class Tokenizer:
                     yield self.inverse_vocab[special_token.encode()]
                 elif len(buffer) > BUFFER_SIZE:
                     pretokens = list(pretokenize(buffer[:-max_special_token_len]))
-                    buffer = ''.join([*pretokens[-2:], buffer[-max_special_token_len:]])
+                    buffer = "".join([*pretokens[-2:], buffer[-max_special_token_len:]])
                     yield from encode_pretokens(pretokens[:-2], self.inverse_vocab, self.merges)
                     # print(total)
-                    
+
             if buffer:
-                print('here', len(buffer))
+                print("here", len(buffer))
                 yield from self.encode(buffer)
-                print('here now')
+                print("here now")
                 return
 
         return token_id_generator()
@@ -235,11 +229,10 @@ if __name__ == "__main__":
     #     vocab_size=10000,
     #     special_tokens=special_tokens,
     # )
-    print('aaaaa')
+    print("aaaaa")
     tokenizer = Tokenizer.from_files(MODELS_DIR / "TinyStoriesV2-GPT4-train-bpe-2026-10-08_11-29-06", special_tokens=[])
-    with open(DATA_DIR / 'tinystories_sample_5M.txt') as f:
-        print('starting')
+    with open(DATA_DIR / "tinystories_sample_5M.txt") as f:
+        print("starting")
         for x in zip(range(100000), tokenizer.encode_iterable(f)):
             pass
     # encoded = tokenizer.encode("Héllò hôw <|endoftext|><|endoftext|> are ü? 🙃<|endoftext|>")
-
