@@ -6,6 +6,7 @@ import regex as re
 import os
 from collections import Counter
 import itertools
+from tqdm import tqdm
 
 PRETOKENIZATION_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""" 
 
@@ -36,7 +37,7 @@ def do_merges(max_num_merges: int, pretoken_counts: dict[bytes, int]) -> list[tu
             pretoken_list.add(i)
 
 
-    for _ in range(max_num_merges):
+    for _ in tqdm(range(max_num_merges), desc="Performing merges"):
         two_gram_to_merge = max(two_gram_count.items(), key=lambda x: (x[1], vocab[ord(x[0][0])], vocab[ord(x[0][1])]))[0]
 
         two_gram_count.pop(two_gram_to_merge)
@@ -90,7 +91,7 @@ def sum_counters_fast(counters):
 
 def pre_tokenize(data_chunks: list[str], special_tokens: list[str]) -> dict[bytes, int]:
     pretoken_count = Counter()
-    for data_str in data_chunks:
+    for data_str in tqdm(data_chunks, desc="Pretokenizing chunks"):
         pretoken_count.update(x.group() for x in re.finditer(PRETOKENIZATION_PATTERN, data_str))
     pretoken_count_dict = dict(pretoken_count)
     return {k.encode() : v for k,v in pretoken_count_dict.items() if k not in special_tokens}
@@ -127,6 +128,26 @@ def train_bpe(data_file_name: str, vocab_size: int, special_tokens: list[str]):
     with open(out_file_path, 'wb') as f:
         pickle.dump(output, f)
     return output
+
+
+
+Class Tokenizer:
+    def __init__(self, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str] | None = None):
+        special_tokens = special_tokens or list()
+
+    @classmethod
+    
+
+
+
+
+
+
+
+
+
+
+
 
 
 
