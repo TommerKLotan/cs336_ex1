@@ -1,3 +1,4 @@
+import itertools
 import os
 import pickle
 import struct
@@ -153,7 +154,7 @@ def encode_pretoken(pretoken: str, inverse_vocab, merge_rank_dict):
 
 def encode_pretokens(pretokens: list[str], inverse_vocab, merges) -> list[int]:
     merge_rank_dict = {m: i for i, m in enumerate(merges)}
-    return sum((encode_pretoken(pretoken, inverse_vocab, merge_rank_dict) for pretoken in pretokens), [])
+    return list(itertools.chain(encode_pretoken(pretoken, inverse_vocab, merge_rank_dict) for pretoken in pretokens))
 
 
 class Tokenizer:
@@ -175,14 +176,13 @@ class Tokenizer:
     def encode(self, text: str) -> list[int]:
         chunks = split_by_special_token(text, self.special_tokens, keep_special_tokens=True)
         ()
-        encoded = sum(
-            (
+        encoded = list(
+            itertools.chain(
                 [self.inverse_vocab[chunk.encode()]]
                 if chunk in self.special_tokens
                 else encode_pretokens(pretokenize(chunk), self.inverse_vocab, self.merges)
                 for chunk in tqdm(chunks)
-            ),
-            [],
+            )
         )
         return encoded
 
