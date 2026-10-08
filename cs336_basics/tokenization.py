@@ -144,6 +144,8 @@ def encode_pretoken(pretoken: str, inverse_vocab, merge_rank_dict):
     while len(tokens) > 1:
         pairs = zip(tokens, tokens[1:])
         merge_candidates = [pair for pair in pairs if pair in merge_rank_dict]
+        if not merge_candidates:
+            break
         a, b = min(merge_candidates, key=merge_rank_dict.get)
         tokens = replace_subarray(tokens, [a, b], [a + b])
     return [inverse_vocab[x] for x in tokens]
@@ -207,9 +209,7 @@ class Tokenizer:
                     # print(total)
 
             if buffer:
-                print("here", len(buffer))
                 yield from self.encode(buffer)
-                print("here now")
                 return
 
         return token_id_generator()
