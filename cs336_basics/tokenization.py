@@ -167,7 +167,7 @@ def encode_pretoken(pretoken: str, inverse_vocab, merge_rank_dict):
 
 def encode_pretokens(pretokens: list[str], inverse_vocab, merges) -> list[int]:
     merge_rank_dict = {m: i for i, m in enumerate(merges)}
-    return list(itertools.chain(encode_pretoken(pretoken, inverse_vocab, merge_rank_dict) for pretoken in pretokens))
+    return list(itertools.chain(*(encode_pretoken(pretoken, inverse_vocab, merge_rank_dict) for pretoken in pretokens)))
 
 
 class Tokenizer:
@@ -188,14 +188,13 @@ class Tokenizer:
 
     def encode(self, text: str) -> list[int]:
         chunks = split_by_special_token(text, self.special_tokens, keep_special_tokens=True)
-        ()
         encoded = list(
-            itertools.chain(
+            itertools.chain(*(
                 [self.inverse_vocab[chunk.encode()]]
                 if chunk in self.special_tokens
                 else encode_pretokens(pretokenize(chunk), self.inverse_vocab, self.merges)
                 for chunk in tqdm(chunks)
-            )
+            ))
         )
         return encoded
 
@@ -228,8 +227,12 @@ class Tokenizer:
         return token_id_generator()
 
     def decode(self, ids: list[int]) -> str:
+        print(ids)
         token_bytes = b"".join(self.vocab[id] for id in ids)
         return token_bytes.decode(errors="replace")
+
+
+
 
 
 FIXTURES_PATH = (Path(__file__).resolve().parent.parent) / "tests" / "fixtures"
@@ -237,9 +240,14 @@ MODELS_DIR = Path(__file__).parent.parent / "models"
 DATA_DIR = Path(__file__).parent.parent / "data"
 if __name__ == "__main__":
     special_tokens = ["<|endoftext|>"]
+    # vocab, merges = train_bpe_to_file(
+    #     "TinyStoriesV2-GPT4-train",
+    #     vocab_size=10000,
+    #     special_tokens=special_tokens,
+    # )
     vocab, merges = train_bpe_to_file(
-        "TinyStoriesV2-GPT4-train",
-        vocab_size=10000,
+        "owt_train.txt",
+        vocab_size=32000,
         special_tokens=special_tokens,
     )
     # print("aaaaa")
@@ -248,4 +256,5 @@ if __name__ == "__main__":
     #     print("starting")
     #     for x in zip(range(100000), tokenizer.encode_iterable(f)):
     #         pass
-    # # encoded = tokenizer.encode("Héllò hôw <|endoftext|><|endoftext|> are ü? 🙃<|endoftext|>")
+    # encoded = tokenizer.encode("Héllò hôw <|endoftext|><|endoftext|> are ü? 🙃<|endoftext|>")
+    # print(encoded)
