@@ -9,7 +9,7 @@ import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
 
-from cs336_basics import tokenization
+from cs336_basics import tokenization, transformer
 
 
 def run_linear(
@@ -30,8 +30,9 @@ def run_linear(
     Returns:
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
-
-    raise NotImplementedError
+    lin_layer = transformer.LinearLayer(d_in, d_out)
+    lin_layer.load_state_dict(dict(W=weights))
+    return lin_layer(in_features)
 
 
 def run_embedding(
@@ -53,7 +54,9 @@ def run_embedding(
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
 
-    raise NotImplementedError
+    embed_layer = transformer.EmbeddingLayer(vocab_size, d_model)
+    embed_layer.load_state_dict(dict(embeddings=weights))
+    return embed_layer(token_ids)
 
 
 def run_swiglu(
@@ -85,7 +88,9 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    raise NotImplementedError
+    swiglu_layer = transformer.SwigluLayer(d_model, d_ff)
+    swiglu_layer.load_state_dict(dict(W1=w1_weight, W2=w2_weight, W3=w3_weight))
+    return swiglu_layer(in_features)
 
 
 def run_scaled_dot_product_attention(
@@ -380,7 +385,9 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    raise NotImplementedError
+    rmsnorm_layer = transformer.RMSNormLayer(d_model, eps=eps)
+    rmsnorm_layer.load_state_dict(dict(gamma=weights))
+    return rmsnorm_layer(in_features)
 
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
