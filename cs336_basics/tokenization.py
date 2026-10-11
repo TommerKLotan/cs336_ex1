@@ -7,10 +7,16 @@ from collections.abc import Iterable, Iterator
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import regex as re
 from tqdm import tqdm
 
 PRETOKENIZATION_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+MAIN_DIR = Path(__file__).parent.parent
+FIXTURES_PATH = MAIN_DIR / "tests" / "fixtures"
+MODELS_DIR = MAIN_DIR / "models"
+DATA_DIR = MAIN_DIR / "data"
+TOKENIZED_DATA_DIR = MAIN_DIR / "tokenized_data"
 
 
 def replace_subarray(lst, target, replacement):
@@ -189,12 +195,14 @@ class Tokenizer:
     def encode(self, text: str) -> list[int]:
         chunks = split_by_special_token(text, self.special_tokens, keep_special_tokens=True)
         encoded = list(
-            itertools.chain(*(
-                [self.inverse_vocab[chunk.encode()]]
-                if chunk in self.special_tokens
-                else encode_pretokens(pretokenize(chunk), self.inverse_vocab, self.merges)
-                for chunk in tqdm(chunks)
-            ))
+            itertools.chain(
+                *(
+                    [self.inverse_vocab[chunk.encode()]]
+                    if chunk in self.special_tokens
+                    else encode_pretokens(pretokenize(chunk), self.inverse_vocab, self.merges)
+                    for chunk in tqdm(chunks)
+                )
+            )
         )
         return encoded
 
@@ -232,12 +240,14 @@ class Tokenizer:
         return token_bytes.decode(errors="replace")
 
 
+def tokenize_text_to_file(tokenizer_file_name: str, data_file_name: str, special_tokens=None):
+
+    tokenizer = Tokenizer.from_files(MODELS_DIR / tokenizer_file_name, special_tokens)
+    with open(DATA_DIR / data_file_name) as f:
+        ids = np.fromiter(tokenizer.encode_iterable(f), dtype=np.uint16)
+    np.save(TOKENIZED_DATA_DIR / (f"{tokenizer_file_name}-{data_file_name}"), ids)
 
 
-
-FIXTURES_PATH = (Path(__file__).resolve().parent.parent) / "tests" / "fixtures"
-MODELS_DIR = Path(__file__).parent.parent / "models"
-DATA_DIR = Path(__file__).parent.parent / "data"
 if __name__ == "__main__":
     special_tokens = ["<|endoftext|>"]
     # vocab, merges = train_bpe_to_file(
@@ -245,11 +255,20 @@ if __name__ == "__main__":
     #     vocab_size=10000,
     #     special_tokens=special_tokens,
     # )
-    vocab, merges = train_bpe_to_file(
-        "owt_train.txt",
-        vocab_size=32000,
-        special_tokens=special_tokens,
-    )
+
+    # Train on OWT
+    # vocab, merges = train_bpe_to_file(
+    #     "owt_train.txt",
+    #     vocab_size=32000,
+    #     special_tokens=special_tokens,
+    # )
+
+    # Tokenize tiny stories
+    for data_file_name in (f"TinyStoriesV2-GPT4-{x}.txt" for x in ["train", "valid"]):
+        tokenize_text_to_file(
+            "tinystories_sample_5M-bpe-2026-10-07_19-15-50", data_file_name, special_tokens=special_tokens
+        )
+
     # print("aaaaa")
     # tokenizer = Tokenizer.from_files(MODELS_DIR / "TinyStoriesV2-GPT4-train-bpe-2026-10-08_11-29-06", special_tokens=[])
     # with open(DATA_DIR / "tinystories_sample_5M.txt") as f:
