@@ -1,3 +1,4 @@
+import einx
 import numpy as np
 import torch
 from einops import einsum, rearrange
@@ -86,4 +87,29 @@ class SwigluLayer(nn.Module):
         output = self.silu(einsum(x, self.W1, "... d_model, d_ff d_model -> ... d_ff"))
         output = output * einsum(x, self.W3, "... d_model, d_ff d_model -> ... d_ff")
         output = einsum(output, self.W2, "... d_ff, d_model d_ff -> ... d_model")
+        return output
+
+
+class RoPELayer(nn.Module):
+    def __init__(self, theta: float, d_k: int, max_seq_len: int, device=None):
+        super().__init__()
+        assert d_k % 2 == 0
+        theta_powers = torch.pow(theta, torch.arange(0, d_k, 2, device=device) / d_k)
+        theta_mat = einx.divide("i, k -> i k", torch.arange(0, max_seq_len, device=device), theta_powers)
+        self.register_buffer("cos_mat", torch.cos(theta_mat))
+        self.register_buffer("sin_mat", torch.sin(theta_mat))
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+        cos = self.cos_mat[token_positions]
+        sin = self.sin_mat[token_positions]
+        pairs = rearrange(x, "... (d two) -> ... d two", two=2)
+        x1, x2 = pairs[..., 0], pairs[..., 1]
+
+        r11 = einx.multiply("... seq d, seq d -> ... seq d", x1, cos)
+        r12 = einx.multiply("... seq d, seq d -> ... seq d", x2, -sin)
+        r21 = einx.multiply("... seq d, seq d -> ... seq d", x1, sin)
+        r22 = einx.multiply("... seq d, seq d -> ... seq d", x2, cos)
+        y1 = r11 + r12
+        y2 = r21 + r22
+        output = rearrange([y1, y2], "two ... d -> ... (d two)")
         return output
