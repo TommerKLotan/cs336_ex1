@@ -293,7 +293,20 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    transformer_block = transformer.TransformerBlockLayer(d_model, num_heads, d_ff, theta, max_seq_len)
+    W_QKV = rearrange(
+        [weights["attn.q_proj.weight"], weights["attn.k_proj.weight"], weights["attn.v_proj.weight"]],
+        "num_mats d1 d2 -> (num_mats d1) d2",
+    )
+    transformer_block.mha.W_QKV.data = W_QKV
+    transformer_block.mha.W_O.data = weights["attn.output_proj.weight"]
+    transformer_block.norm1.gamma.data = weights["ln1.weight"]
+    transformer_block.norm2.gamma.data = weights["ln2.weight"]
+    transformer_block.ffn.W1.data = weights["ffn.w1.weight"]
+    transformer_block.ffn.W2.data = weights["ffn.w2.weight"]
+    transformer_block.ffn.W3.data = weights["ffn.w3.weight"]
+
+    return transformer_block(in_features)
 
 
 def run_transformer_lm(
@@ -375,7 +388,36 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    transformer_lm = transformer.TransformerLM(
+        vocab_size,
+        context_length,
+        d_model,
+        num_layers,
+        num_heads,
+        d_ff,
+        rope_theta,
+    )
+    for layer_num in range(num_layers):
+        layer_prefix = f"layers.{layer_num}."
+        W_QKV = rearrange(
+            [
+                weights[f"{layer_prefix}attn.q_proj.weight"],
+                weights[f"{layer_prefix}attn.k_proj.weight"],
+                weights[f"{layer_prefix}attn.v_proj.weight"],
+            ],
+            "num_mats d1 d2 -> (num_mats d1) d2",
+        )
+        transformer_lm.transformers[layer_num].mha.W_QKV.data = W_QKV
+        transformer_lm.transformers[layer_num].mha.W_O.data = weights[f"{layer_prefix}attn.output_proj.weight"]
+        transformer_lm.transformers[layer_num].norm1.gamma.data = weights[f"{layer_prefix}ln1.weight"]
+        transformer_lm.transformers[layer_num].norm2.gamma.data = weights[f"{layer_prefix}ln2.weight"]
+        transformer_lm.transformers[layer_num].ffn.W1.data = weights[f"{layer_prefix}ffn.w1.weight"]
+        transformer_lm.transformers[layer_num].ffn.W2.data = weights[f"{layer_prefix}ffn.w2.weight"]
+        transformer_lm.transformers[layer_num].ffn.W3.data = weights[f"{layer_prefix}ffn.w3.weight"]
+    transformer_lm.embedding.embeddings.data = weights["token_embeddings.weight"]
+    transformer_lm.norm.gamma.data = weights["ln_final.weight"]
+    transformer_lm.lin.W.data = weights["lm_head.weight"]
+    return transformer_lm(in_indices)
 
 
 def run_rmsnorm(

@@ -23,7 +23,7 @@ class LinearLayer(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return einsum(x, self.W, "... d_in, d_out d_in -> ... d_out")
+        return einx.dot("... d_in, d_out d_in -> ... d_out", x, self.W)
 
 
 class EmbeddingLayer(nn.Module):
@@ -155,6 +155,7 @@ class MultiheadSelfAttentionLayer(nn.Module):
         d_v: int | None = None,
         theta: float | None = None,
         max_seq_len: int | None = None,
+        rope=None,
         device=None,
         dtype=None,
     ):
@@ -166,7 +167,9 @@ class MultiheadSelfAttentionLayer(nn.Module):
         self.W_O = _init_weights(num_heads * d_v, d_model, device=device, dtype=dtype)
 
         self.W_QKV = _init_weights(d_model, num_heads * (2 * d_k + d_v), device=device, dtype=dtype)
-        if theta is not None and max_seq_len is not None:
+        if rope is not None:
+            self.rope = rope
+        elif theta is not None and max_seq_len is not None:
             self.rope = RoPELayer(theta, d_k, max_seq_len, device=device)
         else:
             self.rope = None
@@ -217,13 +220,60 @@ class TransformerBlockLayer(nn.Module):
         d_ff: int,
         theta: float | None = None,
         max_seq_len: int | None = None,
+        rope=None,
         device=None,
         dtype=None,
     ):
         super().__init__()
+        self.norm1 = RMSNormLayer(d_model, device=device, dtype=dtype)
+        self.norm2 = RMSNormLayer(d_model, device=device, dtype=dtype)
+        self.mha = MultiheadSelfAttentionLayer(
+            d_model, num_heads, theta=theta, max_seq_len=max_seq_len, device=device, dtype=dtype
+        )
+        self.ffn = SwigluLayer(d_model, d_ff, device=device, dtype=dtype)
 
-    def forward(self):
-        pass
+    def forward(
+        self,
+        in_features: Float[Tensor, " batch sequence_length d_model"],
+    ) -> Float[Tensor, " batch sequence_length d_model"]:
+        output = in_features + self.mha(self.norm1(in_features))
+        output = output + self.ffn(self.norm2(output))
+        return output
+
+
+class TransformerLM(nn.Module):
+    def __init__(
+        self,
+        vocab_size: int,
+        context_length: int,
+        d_model: int,
+        num_layers: int,
+        num_heads: int,
+        d_ff: int,
+        rope_theta: float,
+        device=None,
+        dtype=None,
+    ):
+        super().__init__()
+        self.embedding = EmbeddingLayer(vocab_size, d_model, device=device, dtype=dtype)
+        rope = RoPELayer(rope_theta, d_model // num_heads, context_length, device)
+        self.transformers = nn.Sequential(
+            *(
+                TransformerBlockLayer(d_model, num_heads, d_ff, rope_theta, context_length, rope, device, dtype)
+                for _ in range(num_layers)
+            )
+        )
+        self.norm = RMSNormLayer(d_model, device=device, dtype=dtype)
+        self.lin = LinearLayer(d_model, vocab_size, device, dtype)
+        self.softmax = SoftmaxLayer()
+
+    def forward(
+        self,
+        in_indices: Int[Tensor, " batch_size sequence_length"],
+    ) -> Float[Tensor, " batch_size sequence_length vocab_size"]:
+        output = self.transformers(self.embedding(in_indices))
+        output = self.lin(self.norm(output))
+        return output
 
 
 if __name__ == "__main__":
