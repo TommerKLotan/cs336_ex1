@@ -14,7 +14,7 @@ from tqdm import tqdm
 PRETOKENIZATION_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 MAIN_DIR = Path(__file__).parent.parent
 FIXTURES_PATH = MAIN_DIR / "tests" / "fixtures"
-MODELS_DIR = MAIN_DIR / "models"
+TOKENIZATION_MODELS_DIR = MAIN_DIR / "tokenization_models"
 DATA_DIR = MAIN_DIR / "data"
 TOKENIZED_DATA_DIR = MAIN_DIR / "tokenized_data"
 
@@ -242,7 +242,7 @@ class Tokenizer:
 
 def tokenize_text_to_file(tokenizer_file_name: str, data_file_name: str, special_tokens=None):
 
-    tokenizer = Tokenizer.from_files(MODELS_DIR / tokenizer_file_name, special_tokens)
+    tokenizer = Tokenizer.from_files(TOKENIZATION_MODELS_DIR / tokenizer_file_name, special_tokens)
     with open(DATA_DIR / data_file_name) as f:
         ids = np.fromiter(tokenizer.encode_iterable(f), dtype=np.uint16)
     np.save(TOKENIZED_DATA_DIR / (f"{tokenizer_file_name}-{data_file_name}"), ids)
