@@ -8,7 +8,7 @@ import typer
 from tokenization import TOKENIZATION_MODELS_DIR, Tokenizer
 
 from cs336_basics.training import load_checkpoint
-from cs336_basics.training_loop import MODELS_DIR
+from cs336_basics.training_loop import MODELS_DIR, get_model_latest_checkpoint_file
 from cs336_basics.transformer import SoftmaxLayer, TransformerLM
 
 END_OF_TEXT = "<|endoftext|>"
@@ -23,14 +23,16 @@ class Decoder:
         self.model = TransformerLM(**model_config)
         load_checkpoint(checkpoint_file, self.model, None)
         self.model.eval()
-        self.tokenizer = Tokenizer.from_files(TOKENIZATION_MODELS_DIR / config["tokenization_model_name"])
+        self.tokenizer = Tokenizer.from_files(
+            TOKENIZATION_MODELS_DIR / config["tokenization_model_name"], special_tokens=SPECIAL_TOKENS
+        )
         self.end_of_text_id = self.tokenizer.encode(END_OF_TEXT)[0]
 
     @classmethod
     def from_model_id(cls, model_id):
         model_dir = MODELS_DIR / model_id
         config = json.loads((model_dir / "config.json").read_text())
-        chkpt_file_path = model_dir / max(x for x in model_dir.iterdir() if "chkp" in str(x))
+        chkpt_file_path = model_dir / get_model_latest_checkpoint_file(model_id)
         return cls(config, chkpt_file_path)
 
     def _tokenize_prompt(self, prompt: str) -> npt.NDArray:
@@ -39,6 +41,8 @@ class Decoder:
     def _get_token_id_from_logits(self, logits, temperature, top_p_thresh) -> int:
         logits = logits / temperature
         dist = self.softmax(logits, -1).numpy()
+        dist = dist.astype(np.float64)
+        dist /= dist.sum()
         sort_indices = np.arange(len(dist))
         if top_p_thresh is not None:
             sort_indices = np.argsort(dist)[::-1]
@@ -57,17 +61,17 @@ class Decoder:
         top_p_thresh: float | None = None,
     ) -> str:
         tokenized_prompt = self._tokenize_prompt(prompt)
+        input_len = len(tokenized_prompt)
         if max_generated_tokens is None:
-            max_generated_tokens = self.context_length - len(tokenized_prompt)
+            max_generated_tokens = self.context_length - input_len
         else:
             max_generated_tokens = min(max_generated_tokens, self.context_length - len(tokenized_prompt))
         context = np.concat([tokenized_prompt, max_generated_tokens * [0]])
         context = einx.id("seq -> 1 seq", torch.tensor(context))
-        input_len = len(context)
         num_out_tokens = 0
         for ind in range(input_len, input_len + max_generated_tokens):
             with torch.inference_mode():
-                logits = self.model(context)[0, 0, :]
+                logits = self.model(context[..., :ind])[0, -1, :]
             next_token_id = self._get_token_id_from_logits(logits, temperature, top_p_thresh)
             if next_token_id == self.end_of_text_id:
                 break

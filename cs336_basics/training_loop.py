@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 from cs336_basics.training import (
     AdamW,
+    cosine_learning_rate_schedule,
     cross_entropy,
     get_batch,
     load_checkpoint,
@@ -34,6 +35,11 @@ def generate_model_uid(length=10):
 
 def create_model_checkpoint(model_id, model, optimizer, iteration):
     save_checkpoint(model, optimizer, iteration, MODELS_DIR / model_id / f"chkp_{iteration}")
+
+
+def get_model_latest_checkpoint_file(model_id: str) -> str:
+    model_dir = MODELS_DIR / model_id
+    return max((x for x in model_dir.iterdir() if "chkp" in str(x)), key=lambda x: int(str(x).split("_")[1]))
 
 
 def get_vocab_size(tokenization_model_name: str = None):
@@ -63,8 +69,24 @@ def train_loop(
     writer = SummaryWriter(log_dir=log_dir)
     train_config = config["training"]
     model_config = config["model"]
-    for iter_num in tqdm(range(iter_num, train_config["num_iters"])):
+    optimizer_config = config["optimizer"]
+    max_lr = optimizer_config["lr"]
+    num_iters = train_config["num_iters"]
+
+    model.to(device)
+
+    for iter_num in tqdm(range(iter_num, num_iters)):
         # Training step
+        lr = cosine_learning_rate_schedule(
+            iter_num,
+            max_learning_rate=max_lr,
+            min_learning_rate=0.1 * max_lr,
+            warmup_iters=0.05 * train_config["num_iters"],
+            cosine_cycle_iters=num_iters,
+        )
+        for group in optimizer.param_groups:
+            group["lr"] = lr
+
         optimizer.zero_grad()
         model.train()
         train_batch, train_batch_target = get_batch(
@@ -90,7 +112,7 @@ def train_loop(
         writer.add_scalar("Perplexity/validation", valid_perplexity.item(), iter_num + 1)
 
         # Checkpoint
-        if iter_num + 1 % train_config["iters_between_checkpoints"] == 0 or iter_num == train_config["num_iters"] - 1:
+        if (iter_num + 1) % train_config["iters_between_checkpoints"] == 0 or iter_num == num_iters - 1:
             create_model_checkpoint(
                 model_id,
                 model,
@@ -162,7 +184,7 @@ def train_loop_wrapper(
     optimizer = AdamW(model.parameters(), **config["optimizer"])
     iter_num = 0
     if resume is not None:
-        chkp_file_name = max(x for x in model_dir.iterdir() if "chkp" in str(x))
+        chkp_file_name = get_model_latest_checkpoint_file(model_id)
         chkp_file_path = model_dir / chkp_file_name
         iter_num = load_checkpoint(chkp_file_path, model, optimizer)
 
