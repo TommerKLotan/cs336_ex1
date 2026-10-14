@@ -12,6 +12,7 @@ from torch import Tensor
 
 def cross_entropy(logits: Float[Tensor, "... d"], target: Int[Tensor, "..."]) -> Float[Tensor, ""]:
     logits = einx.id("... d -> (...) d", logits)
+    target = einx.id("... -> (...)", target)
     logits = logits - torch.amax(logits, dim=-1, keepdim=True)
     exp_sum = torch.sum(torch.exp(logits), dim=-1)
     losses = torch.log(exp_sum) - logits[torch.arange(logits.size(0)), target]
@@ -99,8 +100,8 @@ def get_batch(
     starts = torch.randint(0, max_start + 1, (batch_size, 1))
     indices = starts + torch.arange(context_length)
 
-    batches = dataset_tensor[indices].to(device)
-    targets = dataset_tensor[indices + 1].to(device)
+    batches = dataset_tensor[indices].to(device).long()
+    targets = dataset_tensor[indices + 1].to(device).long()
     return batches, targets
 
 

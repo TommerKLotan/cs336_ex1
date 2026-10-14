@@ -200,7 +200,7 @@ class Tokenizer:
                     [self.inverse_vocab[chunk.encode()]]
                     if chunk in self.special_tokens
                     else encode_pretokens(pretokenize(chunk), self.inverse_vocab, self.merges)
-                    for chunk in tqdm(chunks)
+                    for chunk in chunks
                 )
             )
         )
@@ -235,7 +235,6 @@ class Tokenizer:
         return token_id_generator()
 
     def decode(self, ids: list[int]) -> str:
-        print(ids)
         token_bytes = b"".join(self.vocab[id] for id in ids)
         return token_bytes.decode(errors="replace")
 
@@ -245,7 +244,7 @@ def tokenize_text_to_file(tokenizer_file_name: str, data_file_name: str, special
     tokenizer = Tokenizer.from_files(TOKENIZATION_MODELS_DIR / tokenizer_file_name, special_tokens)
     with open(DATA_DIR / data_file_name) as f:
         ids = np.fromiter(tokenizer.encode_iterable(f), dtype=np.uint16)
-    np.save(TOKENIZED_DATA_DIR / (f"{tokenizer_file_name}-{data_file_name}"), ids)
+    np.save((TOKENIZED_DATA_DIR / (f"{tokenizer_file_name}-{data_file_name}")).with_suffix(""), ids)
 
 
 if __name__ == "__main__":

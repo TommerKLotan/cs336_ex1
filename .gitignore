@@ -9,8 +9,9 @@ __pycache__/
 
 models/
 tokenization_models/
+tokenized_data/
 data/
-
+logs/
 
 # Distribution / packaging
 .Python

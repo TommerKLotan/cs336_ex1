@@ -3,10 +3,11 @@ import secrets
 import string
 from pathlib import Path
 
+import numpy as np
 import numpy.typing as npt
 import torch
 import typer
-from tokenization import MAIN_DIR, TOKENIZATION_MODELS_DIR, Tokenizer
+from tokenization import MAIN_DIR, TOKENIZATION_MODELS_DIR, TOKENIZED_DATA_DIR, Tokenizer
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -40,6 +41,11 @@ def get_vocab_size(tokenization_model_name: str = None):
     return len(tokenizer.vocab)
 
 
+def load_datasets(dataset_name: str):
+    dataset_file_names = [TOKENIZED_DATA_DIR / f"{dataset_name}-{x}.npy" for x in ["train", "valid"]]
+    return tuple(np.load(file_name, mmap_mode="r") for file_name in dataset_file_names)
+
+
 def train_loop(
     model_id: str,
     config: dict,
@@ -49,6 +55,9 @@ def train_loop(
     valid_dataset: npt.NDArray,
     iter_num: int = 0,
 ):
+    print(f"Training model: {model_id} from iter {iter_num}")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
     log_dir = LOG_DIR / model_id
     log_dir.mkdir(parents=True, exist_ok=True)
     writer = SummaryWriter(log_dir=log_dir)
@@ -59,7 +68,7 @@ def train_loop(
         optimizer.zero_grad()
         model.train()
         train_batch, train_batch_target = get_batch(
-            train_dataset, train_config["train_batch_size"], model_config["context_size"]
+            train_dataset, train_config["train_batch_size"], model_config["context_length"], device
         )
         logits = model(train_batch)
         loss = cross_entropy(logits, train_batch_target)
@@ -70,7 +79,7 @@ def train_loop(
         model.eval()
         with torch.inference_mode():
             valid_batch, valid_batch_target = get_batch(
-                valid_dataset, train_config["valid_batch_size"], model_config["context_size"]
+                valid_dataset, train_config["valid_batch_size"], model_config["context_length"], device
             )
             valid_loss = cross_entropy(model(valid_batch), valid_batch_target)
             valid_perplexity = perplexity_from_loss(valid_loss)
@@ -81,9 +90,7 @@ def train_loop(
         writer.add_scalar("Perplexity/validation", valid_perplexity.item(), iter_num + 1)
 
         # Checkpoint
-        if (iter_num % train_config["iters_between_checkpoints"] == 0 and iter_num != 0) or iter_num == config[
-            "num_iters"
-        ] - 1:
+        if iter_num + 1 % train_config["iters_between_checkpoints"] == 0 or iter_num == train_config["num_iters"] - 1:
             create_model_checkpoint(
                 model_id,
                 model,
@@ -97,6 +104,7 @@ def train_loop_wrapper(
     resume: str = None,
     just_generate_config: bool = False,
     tokenization_model_name: str = "TinyStoriesV2-GPT4-train-bpe-2026-10-08_19-11-45",
+    dataset_name: str = "TinyStoriesV2-GPT4-train-bpe-2026-10-08_19-11-45-TinyStoriesV2-GPT4",
     context_length: int = 16,
     d_model: int = 64,
     num_layers: int = 3,
@@ -119,7 +127,7 @@ def train_loop_wrapper(
         model_id = resume
 
     model_dir = MODELS_DIR / model_id
-    Path(model_dir).mkdir(exist_ok=True)
+    Path(model_dir).mkdir(parents=True, exist_ok=True)
 
     config_file_path = model_dir / CONFIG_FILE_NAME
     if resume is None:
@@ -154,10 +162,12 @@ def train_loop_wrapper(
     optimizer = AdamW(model.parameters(), **config["optimizer"])
     iter_num = 0
     if resume is not None:
-        chkp_file_name = max(x for x in model_dir.iterdir() if "chkp" in x)
+        chkp_file_name = max(x for x in model_dir.iterdir() if "chkp" in str(x))
         chkp_file_path = model_dir / chkp_file_name
         iter_num = load_checkpoint(chkp_file_path, model, optimizer)
-    train_loop(model_id, config, model, optimizer, iter_num)
+
+    train_dataset, valid_dataset = load_datasets(dataset_name)
+    train_loop(model_id, config, model, optimizer, train_dataset, valid_dataset, iter_num)
 
 
 if __name__ == "__main__":
