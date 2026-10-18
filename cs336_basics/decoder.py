@@ -6,6 +6,7 @@ import numpy.typing as npt
 import torch
 import typer
 from tokenization import TOKENIZATION_MODELS_DIR, Tokenizer
+from tqdm import tqdm
 
 from cs336_basics.training import load_checkpoint
 from cs336_basics.training_loop import MODELS_DIR, get_model_latest_checkpoint_file
@@ -69,7 +70,7 @@ class Decoder:
         context = np.concat([tokenized_prompt, max_generated_tokens * [0]])
         context = einx.id("seq -> 1 seq", torch.tensor(context))
         num_out_tokens = 0
-        for ind in range(input_len, input_len + max_generated_tokens):
+        for ind in tqdm(range(input_len, input_len + max_generated_tokens), desc="Decoding"):
             with torch.inference_mode():
                 logits = self.model(context[..., :ind])[0, -1, :]
             next_token_id = self._get_token_id_from_logits(logits, temperature, top_p_thresh)

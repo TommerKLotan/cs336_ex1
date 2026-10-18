@@ -18,7 +18,10 @@ class LinearLayer(nn.Module):
         std, cutof = _get_std_and_cutof(in_features, out_features)
         self.W = nn.Parameter(
             nn.init.trunc_normal_(
-                torch.zeros([out_features, in_features], device=device, dtype=dtype), std=std, a=-cutof, b=cutof
+                torch.zeros([out_features, in_features], device=device, dtype=dtype),
+                std=std,
+                a=-cutof,
+                b=cutof,
             )
         )
 
@@ -32,7 +35,12 @@ class EmbeddingLayer(nn.Module):
         std, cutof = _get_std_and_cutof(num_embeddings, embedding_dim)
         self.embeddings = nn.Parameter(
             nn.init.trunc_normal_(
-                torch.zeros([num_embeddings, embedding_dim], device=device, dtype=dtype), std=std, a=-cutof, b=cutof
+                torch.zeros(
+                    [num_embeddings, embedding_dim], device=device, dtype=dtype
+                ),
+                std=std,
+                a=-cutof,
+                b=cutof,
             )
         )
 
@@ -51,7 +59,9 @@ class RMSNormLayer(nn.Module):
         in_dtype = x.dtype
         x = x.to(torch.float32)
 
-        rms = torch.sqrt(einsum(torch.square(x), "... d_model -> ...") / self.d_model + self.eps)
+        rms = torch.sqrt(
+            einsum(torch.square(x), "... d_model -> ...") / self.d_model + self.eps
+        )
         rms = rearrange(rms, "... -> ... 1")
         result = (x / rms) * self.gamma
 
@@ -69,7 +79,12 @@ class SiluLayer(nn.Module):
 def _init_weights(fan_in: int, fan_out: int, device=None, dtype=None):
     std, cutof = _get_std_and_cutof(fan_in, fan_out)
     return nn.Parameter(
-        nn.init.trunc_normal_(torch.zeros([fan_out, fan_in], device=device, dtype=dtype), std=std, a=-cutof, b=cutof)
+        nn.init.trunc_normal_(
+            torch.zeros([fan_out, fan_in], device=device, dtype=dtype),
+            std=std,
+            a=-cutof,
+            b=cutof,
+        )
     )
 
 
@@ -96,7 +111,9 @@ class RoPELayer(nn.Module):
         assert d_k % 2 == 0
         theta = theta or 1
         theta_powers = torch.pow(theta, torch.arange(0, d_k, 2, device=device) / d_k)
-        theta_mat = einx.divide("i, k -> i k", torch.arange(0, max_seq_len, device=device), theta_powers)
+        theta_mat = einx.divide(
+            "i, k -> i k", torch.arange(0, max_seq_len, device=device), theta_powers
+        )
         self.register_buffer("cos_mat", torch.cos(theta_mat))
         self.register_buffer("sin_mat", torch.sin(theta_mat))
 
@@ -119,7 +136,9 @@ class SoftmaxLayer(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, in_features: Float[torch.Tensor, " ..."], dim: int) -> Float[torch.Tensor, " ..."]:
+    def forward(
+        self, in_features: Float[torch.Tensor, " ..."], dim: int
+    ) -> Float[torch.Tensor, " ..."]:
         max_vals = torch.amax(in_features, dim=dim, keepdim=True)
         exps = torch.exp(in_features - max_vals)
 
@@ -140,7 +159,9 @@ class ScaledDotProductAttentionLayer(nn.Module):
     ) -> Float[Tensor, " ... queries d_v"]:
 
         d_k = Q.shape[-1]
-        dot_prod = einsum(Q, K, "... queries d_k, ... keys d_k -> ... queries keys") / np.sqrt(d_k)
+        dot_prod = einsum(
+            Q, K, "... queries d_k, ... keys d_k -> ... queries keys"
+        ) / np.sqrt(d_k)
         mask_values = torch.where(mask, 0, float("-inf"))
         scores = self.softmax(dot_prod + mask_values, dim=-1)
         return einsum(scores, V, "... queries keys, ... keys d_v -> ... queries d_v")
@@ -166,7 +187,9 @@ class MultiheadSelfAttentionLayer(nn.Module):
 
         self.W_O = _init_weights(num_heads * d_v, d_model, device=device, dtype=dtype)
 
-        self.W_QKV = _init_weights(d_model, num_heads * (2 * d_k + d_v), device=device, dtype=dtype)
+        self.W_QKV = _init_weights(
+            d_model, num_heads * (2 * d_k + d_v), device=device, dtype=dtype
+        )
         if rope is not None:
             self.rope = rope
         elif theta is not None and max_seq_len is not None:
@@ -194,21 +217,34 @@ class MultiheadSelfAttentionLayer(nn.Module):
             h=self.num_heads,
         )
         QK = einx.id(
-            "... (two h d_k) -> two h ... d_k", QKV[..., : 2 * self.num_heads * self.d_k], two=2, h=self.num_heads
+            "... (two h d_k) -> two h ... d_k",
+            QKV[..., : 2 * self.num_heads * self.d_k],
+            two=2,
+            h=self.num_heads,
         )
         Q = QK[0, ...]
         K = QK[1, ...]
 
-        V = einx.id("... (h d_v) -> h ... d_v", QKV[..., 2 * self.num_heads * self.d_k :], h=self.num_heads)
+        V = einx.id(
+            "... (h d_v) -> h ... d_v",
+            QKV[..., 2 * self.num_heads * self.d_k :],
+            h=self.num_heads,
+        )
 
         if self.rope:
             Q = self.rope(Q, token_positions)
             K = self.rope(K, token_positions)
 
-        attention_mask = torch.tril(torch.ones(seq_len, seq_len, device=in_features.device)) == 1
+        attention_mask = (
+            torch.tril(torch.ones(seq_len, seq_len, device=in_features.device)) == 1
+        )
 
         multi_head_attention = self.attention(Q, K, V, attention_mask)
-        output = einx.dot("h ... seq_len d_v, d_model (h d_v) -> ... seq_len d_model", multi_head_attention, self.W_O)
+        output = einx.dot(
+            "h ... seq_len d_v, d_model (h d_v) -> ... seq_len d_model",
+            multi_head_attention,
+            self.W_O,
+        )
         return output
 
 
@@ -228,7 +264,12 @@ class TransformerBlockLayer(nn.Module):
         self.norm1 = RMSNormLayer(d_model, device=device, dtype=dtype)
         self.norm2 = RMSNormLayer(d_model, device=device, dtype=dtype)
         self.mha = MultiheadSelfAttentionLayer(
-            d_model, num_heads, theta=theta, max_seq_len=max_seq_len, device=device, dtype=dtype
+            d_model,
+            num_heads,
+            theta=theta,
+            max_seq_len=max_seq_len,
+            device=device,
+            dtype=dtype,
         )
         self.ffn = SwigluLayer(d_model, d_ff, device=device, dtype=dtype)
 
@@ -253,13 +294,23 @@ class TransformerLM(nn.Module):
         rope_theta: float,
         device=None,
         dtype=None,
+        **kwargs,
     ):
         super().__init__()
         self.embedding = EmbeddingLayer(vocab_size, d_model, device=device, dtype=dtype)
         rope = RoPELayer(rope_theta, d_model // num_heads, context_length, device)
         self.transformers = nn.Sequential(
             *(
-                TransformerBlockLayer(d_model, num_heads, d_ff, rope_theta, context_length, rope, device, dtype)
+                TransformerBlockLayer(
+                    d_model,
+                    num_heads,
+                    d_ff,
+                    rope_theta,
+                    context_length,
+                    rope,
+                    device,
+                    dtype,
+                )
                 for _ in range(num_layers)
             )
         )
@@ -282,12 +333,17 @@ if __name__ == "__main__":
 
     # in_features = torch.ones(2, d_model)
     in_features = torch.tensor([[1.0, 1], [2, 2]])
-    multihead_attention = MultiheadSelfAttentionLayer(d_model, num_heads, theta=None, max_seq_len=None)
+    multihead_attention = MultiheadSelfAttentionLayer(
+        d_model, num_heads, theta=None, max_seq_len=None
+    )
     q_proj_weight = torch.ones(d_model, d_model)
     k_proj_weight = 2 * torch.ones(d_model, d_model)
     v_proj_weight = 3 * torch.ones(d_model, d_model)
     o_proj_weight = 4 * torch.eye(d_model)
-    W_QKV = rearrange([q_proj_weight, k_proj_weight, v_proj_weight], "num_mats d1 d2 -> (num_mats d1) d2")
+    W_QKV = rearrange(
+        [q_proj_weight, k_proj_weight, v_proj_weight],
+        "num_mats d1 d2 -> (num_mats d1) d2",
+    )
     multihead_attention.W_QKV.data = W_QKV
     multihead_attention.W_O.data = o_proj_weight
     output = multihead_attention(in_features)

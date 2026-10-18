@@ -10,7 +10,9 @@ from jaxtyping import Float, Int
 from torch import Tensor
 
 
-def cross_entropy(logits: Float[Tensor, "... d"], target: Int[Tensor, "..."]) -> Float[Tensor, ""]:
+def cross_entropy(
+    logits: Float[Tensor, "... d"], target: Int[Tensor, "..."]
+) -> Float[Tensor, ""]:
     logits = einx.id("... d -> (...) d", logits)
     target = einx.id("... -> (...)", target)
     logits = logits - torch.amax(logits, dim=-1, keepdim=True)
@@ -25,12 +27,7 @@ def perplexity_from_loss(losses: Float[Tensor, "..."]) -> Float[Tensor, ""]:
 
 class AdamW(torch.optim.Optimizer):
     def __init__(
-        self,
-        params,
-        lr=1e-3,
-        weight_decay=0.01,
-        betas=(0.9, 0.999),
-        eps=1e-8,
+        self, params, lr=1e-3, weight_decay=0.01, betas=(0.9, 0.999), eps=1e-8, **kwargs
     ):
         defaults = dict(lr=lr, weight_decay=weight_decay, betas=betas, eps=eps)
         super().__init__(params, defaults)
@@ -77,12 +74,24 @@ def cosine_learning_rate_schedule(
     elif it > cosine_cycle_iters:
         return min_learning_rate
     else:
-        return min_learning_rate + 0.5 * (
-            1 + np.cos(np.pi * (it - warmup_iters) / (cosine_cycle_iters - warmup_iters))
-        ) * (max_learning_rate - min_learning_rate)
+        # float() so the LR stored in the optimizer state is a Python float, not np.float64,
+        # which torch.load(weights_only=True) refuses to unpickle.
+        return float(
+            min_learning_rate
+            + 0.5
+            * (
+                1
+                + np.cos(
+                    np.pi * (it - warmup_iters) / (cosine_cycle_iters - warmup_iters)
+                )
+            )
+            * (max_learning_rate - min_learning_rate)
+        )
 
 
-def do_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float, eps=1e-6):
+def do_gradient_clipping(
+    parameters: Iterable[torch.nn.Parameter], max_l2_norm: float, eps=1e-6
+):
     def gen_grads():
         return (p.grad.data for p in parameters if p.grad is not None)
 
@@ -94,14 +103,16 @@ def do_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: 
 
 def get_batch(
     dataset: npt.NDArray, batch_size: int, context_length: int, device: str
-) -> tuple[Int[Tensor, "batch_size context_length"], Int[Tensor, "batch_size context_length"]]:
-    dataset_tensor = torch.from_numpy(dataset)
+) -> tuple[
+    Int[Tensor, "batch_size context_length"], Int[Tensor, "batch_size context_length"]
+]:
     max_start = len(dataset) - context_length - 1
     starts = torch.randint(0, max_start + 1, (batch_size, 1))
-    indices = starts + torch.arange(context_length)
+    indices = (starts + torch.arange(context_length)).numpy()
 
-    batches = dataset_tensor[indices].to(device).long()
-    targets = dataset_tensor[indices + 1].to(device).long()
+    # Index in numpy first: fancy indexing copies just the batch out of the (possibly read-only memmap) dataset
+    batches = torch.from_numpy(dataset[indices]).to(device).long()
+    targets = torch.from_numpy(dataset[indices + 1]).to(device).long()
     return batches, targets
 
 
@@ -124,7 +135,11 @@ def load_checkpoint(
     model: torch.nn.Module | None,
     optimizer: torch.optim.Optimizer | None,
 ) -> int:
-    checkpoint_dict = torch.load(src)
+    # Older checkpoints stored the scheduled LR as np.float64; allowlist just those numpy types.
+    with torch.serialization.safe_globals(
+        [np._core.multiarray.scalar, np.dtype, np.dtypes.Float64DType]
+    ):
+        checkpoint_dict = torch.load(src)
     if model is not None:
         model.load_state_dict(checkpoint_dict["model"])
     if optimizer is not None:

@@ -2,11 +2,16 @@
 # Set up / sync a vast.ai instance for training, and pull results back.
 #
 # Usage:
-#   scripts/vast.sh setup <IP> <PORT> [DATASET_NAME]   # copy code + data, install env (safe to re-run)
-#   scripts/vast.sh pull  <IP> <PORT>                  # download models/ and logs/
+#   scripts/vast.sh setup [DATASET_NAME]   # copy code + data, install env (safe to re-run)
+#   scripts/vast.sh pull                   # download models/ and logs/
 #
-# IP and PORT come from the instance's "Direct ssh connect" line on vast.ai,
-# e.g. `ssh -p 41234 root@1.2.3.4` -> IP=1.2.3.4 PORT=41234.
+# The instance's IP and port are read from vast.conf in the Onboarding directory:
+#   VAST_IP=1.2.3.4
+#   VAST_PORT=41234
+# taken from its "Direct ssh connect" line on vast.ai, e.g. `ssh -p 41234 root@1.2.3.4`.
+#
+# If the host intercepts HTTPS (uv fails with "invalid peer certificate: UnknownIssuer")
+# and you trust it anyway, run setup with TRUST_SYSTEM_CERTS=1 so uv uses the host's CA store.
 set -euo pipefail
 
 DEFAULT_DATASET="TinyStoriesV2-GPT4-train-bpe-2026-10-08_19-11-45-TinyStoriesV2-GPT4"
@@ -14,15 +19,22 @@ REMOTE_DIR="/workspace/cs336-ex1"
 LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
-    sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
 }
 
-[[ $# -ge 3 ]] || usage
+CONFIG_FILE="$(cd "$LOCAL_DIR/.." && pwd)/vast.conf"
+
+[[ $# -ge 1 ]] || usage
 CMD="$1"
-IP="$2"
-PORT="$3"
-DATASET="${4:-$DEFAULT_DATASET}"
+DATASET="${2:-$DEFAULT_DATASET}"
+
+[[ -f "$CONFIG_FILE" ]] || { echo "Missing config file: $CONFIG_FILE" >&2; exit 1; }
+# shellcheck source=/dev/null
+source "$CONFIG_FILE"
+IP="${VAST_IP:-}"
+PORT="${VAST_PORT:-}"
+[[ -n "$IP" && -n "$PORT" ]] || { echo "Set VAST_IP and VAST_PORT in $CONFIG_FILE" >&2; exit 1; }
 
 # New vast hosts have unknown host keys; accept them on first connect.
 SSH=(ssh -p "$PORT" -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30)
@@ -60,6 +72,10 @@ EOF
 set -e
 command -v uv >/dev/null || [ -x ~/.local/bin/uv ] || curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="\$HOME/.local/bin:\$PATH"
+if [ "${TRUST_SYSTEM_CERTS:-0}" = 1 ]; then
+    export UV_SYSTEM_CERTS=1
+    grep -q UV_SYSTEM_CERTS ~/.bashrc || echo "export UV_SYSTEM_CERTS=1" >> ~/.bashrc
+fi
 cd $REMOTE_DIR
 uv sync
 uv run python -c "import torch; assert torch.cuda.is_available(), 'CUDA not available (host driver too old for this torch build?)'; print('GPU:', torch.cuda.get_device_name())"

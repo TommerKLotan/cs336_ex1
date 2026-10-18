@@ -7,7 +7,7 @@ import numpy as np
 import numpy.typing as npt
 import torch
 import typer
-from tokenization import MAIN_DIR, TOKENIZATION_MODELS_DIR, TOKENIZED_DATA_DIR, Tokenizer
+from cs336_basics.tokenization import MAIN_DIR, TOKENIZATION_MODELS_DIR, TOKENIZED_DATA_DIR, Tokenizer
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
